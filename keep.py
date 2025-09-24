@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
 import os
+import json
+from time import sleep
 from dotenv import load_dotenv
 import gkeepapi
 import datetime
@@ -13,14 +15,32 @@ fromEmailAddress = os.getenv('SOURCE_EMAIL')
 fromMasterToken = os.getenv('SOURCE_MASTER_TOKEN')
 toEmailAddress = os.getenv('DEST_EMAIL')
 toMasterToken = os.getenv('DEST_MASTER_TOKEN')
+debugMode = False
 
-sourceKeep = gkeepapi.Keep()
-destKeep = gkeepapi.Keep()
 print('Authenticating [Source]:', fromEmailAddress)
-sourceSuccess = sourceKeep.authenticate(fromEmailAddress, fromMasterToken)
+sourceKeep = gkeepapi.Keep()
+localDir = os.getcwd() + '/.dumps'
+localName = f"{localDir}/{fromEmailAddress.lower()}.keep.json"
+
+if not os.path.exists(localDir):
+    os.mkdir(localDir, mode=0o755)
+
+if localName and os.path.isfile(localName) and os.path.getsize(localName) > 1:
+    isLocalLoad = True
+    print(f'Grabbing Local: {localName}')
+    sourceKeep.authenticate(fromEmailAddress, fromMasterToken, json.load(open(localName, 'r')), False)
+else:
+    sourceKeep.authenticate(fromEmailAddress, fromMasterToken)
+    json.dump(sourceKeep.dump(), open(localName, 'w'), indent=2)
+
+
 print('Authenticating [Destination]:', toEmailAddress)
-destSuccess = destKeep.authenticate(toEmailAddress, toMasterToken)
-# old = all[-1]
+destKeep = gkeepapi.Keep()
+try:
+    destKeep.authenticate(toEmailAddress, toMasterToken)
+except gkeepapi.exception.APIException as e:
+    print(f'Error Occurred during Auth. {str(e)}')
+    exit(1)
 
 """
 Find or Creates New Label 
@@ -33,7 +53,7 @@ def findOrCreateLabel (name: str) -> Label:
 
 def prepareLabels(sourceLabels: NodeLabels, created: datetime.datetime) -> list[Label] | None:
     destLabels: list[Label] = []
-    if sourceLabels is None or len(sourceLabels) < 1:
+    if sourceLabels and len(sourceLabels.all()) > 0:
         for oneLabel in sourceLabels.all():
             found = destKeep.findLabel(oneLabel.name)
             if found is None:
@@ -58,8 +78,9 @@ def getListChildren(items: NodeType.List) -> list[tuple[str,bool]]:
 allNotes = sourceKeep.all()[::-1]
 total = len(allNotes)
 index = 1
-# types = []
-# json.dump(sourceKeep.dump(), open('localKeep.json', 'w'), indent=2)
+batchSize = 500
+
+
 for item in allNotes:
     title = item.title if item.title != '' else item.text.split('\n')[0]
     # if item.type not in types:
@@ -68,7 +89,6 @@ for item in allNotes:
     if item.type == NodeType.List:
         li = getListChildren(item.items)
         note = destKeep.createList(item.title, li)
-        # note.items = item.list
     else:
         note = destKeep.createNote(item.title, item.text)
     note.labels.add(getImportedLabel())
@@ -79,15 +99,30 @@ for item in allNotes:
     if labels is not None:
         for oneLabel in labels:
             note.labels.add(oneLabel)
-    if item.type == NodeType.List:
-        # print(f'{index}/{total}: {title}')
+    """if item.type == NodeType.List:
         newLabels = []
         for n in note.labels.all():
             newLabels.append(n.name)
-        # print(newLabels)
-        # print(note.text)
+        if len(newLabels) > 3:
+            print(newLabels)
+        """
+    if not debugMode and (index % batchSize == 0 or index == total):
+        print(f'{index}/{total} Syncing changes to {toEmailAddress}')
+        success = False
+        delayRegular = 5
+        errorDelay = 0
+        while not success:
+            try:
+                destKeep.sync()
+                success = True
+                print(f'Waiting for {delayRegular} seconds to avoid hitting rate limit')
+                sleep(delayRegular)
+            except gkeepapi.exception.APIException as e:
+                errorDelay = min(errorDelay + 10, 60)
+                print(f'Error Occurred: {str(e)}')
+                print(f'Sleeping for {errorDelay}seconds {str(e)}')
+                sleep(errorDelay)
     index += 1
 
-# print(types)
-print(f'Saving changes to {toEmailAddress}...')
-destKeep.sync()
+# Generate requirements.txt
+# pipreqs --force --ignore .dumps,.venv .
