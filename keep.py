@@ -43,7 +43,7 @@ def prepareLabels(sourceLabels: NodeLabels, created: datetime.datetime) -> list[
     destLabels.append(findOrCreateLabel(created.strftime("%Y %B")))
     return destLabels
 
-def getImportedLabel(name: str = 'analikebridge@gmail.com') -> Label:
+def getImportedLabel(name: str = fromEmailAddress) -> Label:
     found = destKeep.findLabel(name)
     return found if found is not None else destKeep.createLabel(name)
 
