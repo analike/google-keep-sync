@@ -114,14 +114,17 @@ for item in allNotes:
         while not success:
             try:
                 destKeep.sync()
-                success = True
-                print(f'Waiting for {delayRegular} seconds to avoid hitting rate limit')
-                sleep(delayRegular)
             except gkeepapi.exception.APIException as e:
+                success = False
                 errorDelay = min(errorDelay + 10, 60)
                 print(f'Error Occurred: {str(e)}')
                 print(f'Sleeping for {errorDelay}seconds {str(e)}')
                 sleep(errorDelay)
+            else:
+                success = True
+                print(f'Waiting for {delayRegular} seconds to avoid hitting rate limit')
+                sleep(delayRegular)
+
     index += 1
 
 # Generate requirements.txt
